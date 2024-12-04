@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Todo App</title>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/semantic-ui@2.4.2/dist/semantic.min.css">
+        <script src="https://cdn.jsdelivr.net/npm/semantic-ui@2.4.2/dist/semantic.min.js"></script>
+    </head>
+    <body>
+        <div style="margin-top: 50px;" class="ui container">
+            <h1 class="ui center aligned header">ToDo App</h1>
+
+            <!-- Display success message if present in query parameters -->
+            {% if request.query_params.get('message') %}
+            <div class="ui positive message">
+                <i class="close icon"></i>
+                <div class="header">{{ request.query_params.get('message') }}</div>
+            </div>
+            {% endif %}
+
+            <form class="ui form" action="/add" method="post">
+                <div class="field">
+                    <label>Todo Title</label>
+                    <input type="text" name="title" placeholder="Enter ToDo task...">
+                    <br>
+                </div>
+                <button class="ui blue button" type="submit">Add</button>
+            </form>
+
+            <hr>
+
+            <!-- Display the todo list -->
+            {% for todo in todo_list %}
+            <div class="ui segment">
+                <p class="ui big header">{{ todo.id }} | {{ todo.title }}</p>
+
+                {% if not todo.complete %}
+                <span class="ui gray label">Not Complete</span>
+                {% else %}
+                <span class="ui green label">Complete</span>
+                {% endif %}
+
+                <a class="ui blue button" href="/update/{{ todo.id }}">Update</a>
+                <a class="ui red button" href="/delete/{{ todo.id }}">Delete</a>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Add some custom styling for the message (optional) -->
+        <style>
+            .ui.positive.message {
+                margin-bottom: 20px;
+            }
+        </style>
+    </body>
+</html>
