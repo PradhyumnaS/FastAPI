@@ -19,9 +19,7 @@ load_dotenv()
 finnhub_client = finnhub.Client(api_key=os.getenv("FINNHUB_API_KEY"))
 
 def fetch_stock_data(ticker):
-    """
-    Fetch comprehensive stock data
-    """
+    
     try:
         stock = yf.Ticker(ticker)
         df = stock.history(period="1y")
@@ -34,9 +32,7 @@ def fetch_stock_data(ticker):
         return None, None
 
 def generate_company_sentiment(ticker):
-    """
-    Generate sentiment analysis using pre-trained models
-    """
+    
     try:
         news = finnhub_client.company_news(ticker, _from="2023-01-01", to="2024-01-01")
         
@@ -61,13 +57,11 @@ def generate_company_sentiment(ticker):
         return []
 
 def create_stock_dashboard():
-    """
-    Create the main Streamlit dashboard
-    """
+    
     st.set_page_config(page_title="Stock Insights", layout="wide")
 
     
-    st.title("📈 AI-Powered Stock Market Insights")
+    st.title("Stock Market Insights")
     
     st.sidebar.header("Stock Selector")
     tickers = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'TSLA']
@@ -93,7 +87,7 @@ def create_stock_dashboard():
             fig_volume.update_layout(plot_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig_volume)
         
-        st.header("🤖 AI Sentiment Analysis")
+        st.header("Sentiment Analysis")
         sentiments = generate_company_sentiment(selected_ticker)
         
         for sentiment in sentiments:
