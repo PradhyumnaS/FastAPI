@@ -1,98 +1,133 @@
-from fastapi import FastAPI, HTTPException, Query, staticfiles
-from fastapi.responses import HTMLResponse
-from flask.cli import load_dotenv
-from pydantic import BaseModel
-from typing import List, Optional
-import httpx
+from dotenv import load_dotenv
+import streamlit as st
+import yfinance as yf
+import plotly.express as px
+import plotly.graph_objs as go
+import pandas as pd
+import numpy as np
+from transformers import pipeline
+import requests
+import random
 import os
+from textblob import TextBlob
+import finnhub
+
+sentiment_analyzer = pipeline("sentiment-analysis")
 
 load_dotenv()
 
-app = FastAPI()
+finnhub_client = finnhub.Client(api_key=os.getenv("FINNHUB_API_KEY"))
 
-app.mount("/static", staticfiles.StaticFiles(directory="static"), name="static")
-
-ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
-ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/query"
-
-class StockData(BaseModel):
-    symbol: str
-    date: str
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: int
-
-class StockFilter(BaseModel):
-    min_price: Optional[float] = None
-    max_price: Optional[float] = None
-    min_volume: Optional[int] = None
-    max_volume: Optional[int] = None
-
-async def fetch_stock_data(symbol: str):
-    params = {
-        "function": "TIME_SERIES_DAILY",
-        "symbol": symbol,
-        "apikey": ALPHA_VANTAGE_API_KEY,
-    }
-    async with httpx.AsyncClient() as client:
-        response = await client.get(ALPHA_VANTAGE_BASE_URL, params=params)
-        if response.status_code != 200:
-            raise HTTPException(status_code=500, detail="Failed to fetch stock data")
+def fetch_stock_data(ticker):
+    """
+    Fetch comprehensive stock data
+    """
+    try:
+        stock = yf.Ticker(ticker)
+        df = stock.history(period="1y")
         
-        data = response.json()
-        if "Time Series (Daily)" not in data:
-            if "Error Message" in data or "Note" in data:
-                raise HTTPException(status_code=404, detail="Stock symbol not supported or API limit exceeded")
-            raise HTTPException(status_code=404, detail="Stock data not found")
+        info = stock.info
         
-        latest_date = max(data["Time Series (Daily)"].keys())
-        latest_data = data["Time Series (Daily)"][latest_date]
-        return StockData(
-            symbol=symbol,
-            date=latest_date,
-            open=float(latest_data["1. open"]),
-            high=float(latest_data["2. high"]),
-            low=float(latest_data["3. low"]),
-            close=float(latest_data["4. close"]),
-            volume=int(latest_data["5. volume"]),
-        )
+        return df, info
+    except Exception as e:
+        st.error(f"Error fetching stock data: {e}")
+        return None, None
 
-@app.get("/", response_class=HTMLResponse)
-async def read_root():
-    with open("static/index.html") as f:
-        return HTMLResponse(content=f.read(), status_code=200)
+def generate_company_sentiment(ticker):
+    """
+    Generate sentiment analysis using pre-trained models
+    """
+    try:
+        news = finnhub_client.company_news(ticker, _from="2023-01-01", to="2024-01-01")
+        
+        sentiments = []
+        for article in news[:5]:
+            headline = article.get('headline', '')
+            
+            blob_sentiment = TextBlob(headline).sentiment
+            
+            hf_sentiment = sentiment_analyzer(headline)[0]
+            
+            sentiments.append({
+                'headline': headline,
+                'textblob_polarity': blob_sentiment.polarity,
+                'huggingface_sentiment': hf_sentiment['label'],
+                'huggingface_score': hf_sentiment['score']
+            })
+        
+        return sentiments
+    except Exception as e:
+        st.error(f"Error generating sentiment: {e}")
+        return []
 
-@app.get("/stocks/{symbol}", response_model=StockData)
-async def get_stock(symbol: str):
-    return await fetch_stock_data(symbol)
+def create_stock_dashboard():
+    """
+    Create the main Streamlit dashboard
+    """
+    st.set_page_config(page_title="Stock Insights", layout="wide")
 
-@app.post("/stocks/filter", response_model=List[StockData])
-async def filter_stocks(
-    filter_criteria: StockFilter,
-    symbols: str = Query(..., description="Comma-separated list of stock symbols")
-):
-    symbol_list = symbols.split(",")
-    matching_stocks = []
+    
+    st.title("📈 AI-Powered Stock Market Insights")
+    
+    st.sidebar.header("Stock Selector")
+    tickers = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'TSLA']
+    selected_ticker = st.sidebar.selectbox("Choose a Stock", tickers)
+    
+    df, company_info = fetch_stock_data(selected_ticker)
+    
+    if df is not None and company_info is not None:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader(f"{selected_ticker} Stock Price")
+            fig_price = px.line(df, x=df.index, y='Close', 
+                                title=f'{selected_ticker} Closing Price',
+                                labels={'Close': 'Price ($)'})
+            fig_price.update_layout(plot_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig_price)
+        
+        with col2:
+            st.subheader("Trading Volume")
+            fig_volume = px.bar(df, x=df.index, y='Volume', 
+                                title=f'{selected_ticker} Trading Volume')
+            fig_volume.update_layout(plot_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig_volume)
+        
+        st.header("🤖 AI Sentiment Analysis")
+        sentiments = generate_company_sentiment(selected_ticker)
+        
+        for sentiment in sentiments:
+            st.markdown(f"""
+            **Headline:** {sentiment['headline']}
+            - TextBlob Polarity: {sentiment['textblob_polarity']:.2f}
+            - HuggingFace Sentiment: {sentiment['huggingface_sentiment']}
+            - Confidence: {sentiment['huggingface_score']:.2%}
+            """)
+        
+        st.header("🏢 Company Overview")
+        col_info1, col_info2 = st.columns(2)
+        
+        with col_info1:
+            st.metric("Current Price", f"${df['Close'].iloc[-1]:.2f}")
+            st.metric("Market Cap", f"${company_info.get('marketCap', 'N/A'):,}")
+        
+        with col_info2:
+            st.metric("52-Week High", f"${company_info.get('fiftyTwoWeekHigh', 'N/A')}")
+            st.metric("52-Week Low", f"${company_info.get('fiftyTwoWeekLow', 'N/A')}")
+        
+        st.header("🎲 Market Risk Spectrum")
+        risk_scores = {
+            "Low Risk": random.uniform(0, 3),
+            "Medium Risk": random.uniform(3, 6),
+            "High Risk": random.uniform(6, 10)
+        }
+        
+        risk_df = pd.DataFrame.from_dict(risk_scores, orient='index', columns=['Risk Score'])
+        fig_risk = px.bar(risk_df, title="Investment Risk Assessment")
+        st.plotly_chart(fig_risk)
 
-    for symbol in symbol_list:
-        try:
-            stock = await fetch_stock_data(symbol.strip())
-            if (
-                (filter_criteria.min_price is None or stock.close >= filter_criteria.min_price) and
-                (filter_criteria.max_price is None or stock.close <= filter_criteria.max_price) and
-                (filter_criteria.min_volume is None or stock.volume >= filter_criteria.min_volume) and
-                (filter_criteria.max_volume is None or stock.volume <= filter_criteria.max_volume)
-            ):
-                matching_stocks.append(stock)
-                print(f"Stock {symbol} matches criteria.")
-            else:
-                print(f"Stock {symbol} does not match criteria.")
-        except HTTPException as e:
-            print(f"Error fetching data for {symbol}: {e.detail}")
-            continue
-    return matching_stocks
+def main():
+    create_stock_dashboard()
 
-
-
+if __name__ == "__main__":
+    main()
