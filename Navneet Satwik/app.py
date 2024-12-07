@@ -7,8 +7,6 @@ import models
 
 models.Base.metadata.create_all(bind=engine)
 
-templates = Jinja2Templates(directory="templates")
-
 app = FastAPI()
 
 def get_db():
@@ -17,11 +15,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-@app.get("/")
-async def home(req: Request, db: Session = Depends(get_db)):
-    todos = db.query(models.Todo).all()
-    return templates.TemplateResponse("base.html", { "request": req, "todo_list": todos })
 
 @app.post("/add")
 def add(req: Request, title: str = Form(...), db: Session = Depends(get_db)):
